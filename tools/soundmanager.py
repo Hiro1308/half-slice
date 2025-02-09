@@ -10,21 +10,16 @@ class SoundManager:
             "info": "sounds/info.wav",
             "success": "sounds/success.wav",
         }
-        self.muteado = False
+        self.mute = False
+
+    def toggle_mute(self, value):
+        self.mute = value
 
     def play_sound(self, sound):
-        """Reproduce un efecto de sonido."""
-        if sound in self.sounds:
-            pygame.mixer.Sound(self.sounds[sound]).play()
+        if self.mute:
+            return
 
-    def toggle_muteado(self, value):
-        self.muteado = value
-
-    def reproducir_sonido(self, sound):
-        if self.muteado:
-            return  # No reproducir si está muteado
-
-        sonidos = {
+        sounds = {
             "button": "sounds\\button.wav",
             "slice": "sounds\\slice.wav",
             "slidebar": "sounds\\slidebar.wav",
@@ -33,22 +28,22 @@ class SoundManager:
             "success": "sounds\\success.wav",
         }
 
-        if sound in sonidos:
-            pygame.mixer.Sound(sonidos[sound]).play()
+        if sound in sounds:
+            pygame.mixer.Sound(sounds[sound]).play()
 
     def play_loop(self, sound):
-        if self.muteado:
-            return  # No reproducir si está muteado
-        sonidos = {
+        if self.mute:
+            return
+        sounds = {
             "slice": "sounds\\slice.wav",
             "info": "sounds\\info.wav",
         }
-        if sound in sonidos:
-            pygame.mixer.music.load(sonidos[sound])
+        if sound in sounds:
+            pygame.mixer.music.load(sounds[sound])
             pygame.mixer.music.play(-1)
 
     def stop_sound(self):
         pygame.mixer.music.stop()
 
     def on_slide_start(self, event):
-        self.reproducir_sonido("slidebar")
+        self.play_sound("slidebar")

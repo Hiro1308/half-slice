@@ -11,42 +11,39 @@ from tkinter import filedialog, messagebox
 
 class VideoPlayer:
     def __init__(self, gui):
-        """Inicializa el reproductor de video."""
         self.gui = gui
         self.cap = None
         self.clip = None
         self.playing_preview = False
         self.paused = False
-        self.video_fps = 30.0  # FPS predeterminado si no se puede obtener
+        self.video_fps = 30.0
 
-        # Ruta al ejecutable de FFmpeg incluido en la aplicación
         self.ffmpeg_path = self.get_ffmpeg_path()
-        print("Usando FFmpeg en:", self.ffmpeg_path)
+        print("Using FFMEPG in:", self.ffmpeg_path)
 
     def get_ffmpeg_path(self):
-        """Obtiene la ruta correcta de FFmpeg tanto en el código normal como en el standalone de PyInstaller."""
+        # If the program is being executed on the standalone or without being compiled
         if getattr(sys, 'frozen', False):
-            # 🔥 Si el programa está empaquetado con PyInstaller
-            base_path = os.path.dirname(sys.executable)  # Carpeta donde está el .exe
+            base_path = os.path.dirname(sys.executable)
         else:
-            # 🔥 Si se ejecuta normalmente (sin compilar)
-            base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))  # Subimos un nivel
+            base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
         ffmpeg_exe = os.path.join(base_path, "ffmpeg", "bin", "ffmpeg.exe")
 
+        # Just for the logs :)
         if not os.path.exists(ffmpeg_exe):
-            print(f"⚠️ ERROR: FFmpeg no encontrado en {ffmpeg_exe}")
+            print(f"ERROR: FFmpeg not found in {ffmpeg_exe}")
         else:
-            print(f"✅ FFmpeg encontrado en: {ffmpeg_exe}")
+            print(f"FFmpeg found in: {ffmpeg_exe}")
 
         return ffmpeg_exe
 
     def load_video(self, file_path):
-        """Carga el video y configura los controles."""
+        """ Loads the video and sets up the controllers """
         try:
             self.clip = VideoFileClip(file_path)
             self.cap = cv2.VideoCapture(file_path)
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 10)  # Aumentar buffer para mejorar rendimiento
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 10)  # Increas buffer to optimize performance
             self.video_fps = self.cap.get(cv2.CAP_PROP_FPS) or 30.0
 
             self.gui.enable_buttons()
@@ -54,64 +51,74 @@ class VideoPlayer:
             self.gui.slider_end.config(to=self.clip.duration, command=self.update_end_time)
             self.gui.slider_end.set(self.clip.duration)
 
-            self.show_frame(0)  # Mostrar primer frame
+            self.show_frame(0)
         except Exception as e:
-            self.gui.soundmanager.reproducir_sonido("denied")
-            messagebox.showwarning("Error", f"No se pudo cargar el video: {e}")
+            self.gui.soundmanager.play_sound("denied")
+            messagebox.showwarning("Error", f"Video could not be loaded: {e}")
 
     def play_video_preview(self):
-        """Reproduce el fragmento del video sin audio en la interfaz."""
+        """ Plays the fragment of the video without audio in the interface."""
         if self.clip is None:
-            messagebox.showwarning("Error", "No hay video cargado.")
+            messagebox.showwarning("Error", "No video loaded.")
             return
 
-        # 🔥 Cerrar la captura anterior antes de abrir una nueva
+        # Closing the previous capture before open a new one
         if self.cap is not None:
             self.cap.release()
-            self.cap = None  # Evitar referencias a una captura cerrada
+            self.cap = None  # Avoid references to a close capture
 
-        # 🔥 REABRIR VideoCapture asegurándonos de que la anterior esté cerrada
+        # Reopening VideoCapture ensuring the previous one is closed
         self.cap = cv2.VideoCapture(self.clip.filename)
 
         try:
             start_time = float(self.gui.entry_start_time.get())
             end_time = float(self.gui.entry_end_time.get())
         except ValueError:
-            messagebox.showwarning("Error", "Tiempo de inicio o fin inválido.")
+            messagebox.showwarning("Error", "Invalid start or end time.")
             return
 
         if start_time >= end_time:
-            messagebox.showwarning("Error", "El tiempo de inicio debe ser menor que el final.")
+            messagebox.showwarning("Error", "Start time should be less than end time.")
             return
 
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, int(start_time * self.video_fps))
 
-        # ✅ Rehabilitar el botón en cuanto la preview comienza
+        # Reactivate the button 1 sec after the preview starts
         self.gui.root.after(1000, lambda: self.gui.button_play.config(state=tk.NORMAL))
 
-        start_real_time = time.time()
-
         while self.playing_preview:
+            # If the video is paused, wait and continue looping
             if self.paused:
                 time.sleep(0.1)
                 continue
 
+            # Read the next frame from the video
             ret, frame = self.cap.read()
+
+            # If no frame is returned, stop the preview
             if not ret:
                 break
 
+            # Calculate the current playback time based on the frame position
             current_video_time = (self.cap.get(cv2.CAP_PROP_POS_FRAMES) / self.video_fps)
+
+            # If the video has reached the end time, stop the preview
             if current_video_time >= end_time:
                 break
 
+            # Convert the frame from BGR (OpenCV format) to RGB (PIL format)
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # Convert the frame to a PIL image and resize it for display
             img = Image.fromarray(frame)
             img = img.resize((320, 180), Image.LANCZOS)
             img_tk = ImageTk.PhotoImage(image=img)
 
+            # Update the GUI panel with the new frame
             self.gui.panel_video.config(image=img_tk)
             self.gui.panel_video.image = img_tk
 
+            # Control the frame rate to match the original video FPS
             time.sleep(max(1 / self.video_fps, 0.005))
 
         self.playing_preview = False
@@ -119,55 +126,63 @@ class VideoPlayer:
         self.cap = None
 
     def start_video_preview(self):
-        """Inicia o reinicia la previsualización en un hilo separado."""
+        """Starts or restarts the video preview in a separate thread."""
 
+        # If a preview is already running, stop it and restart from the beginning
         if self.playing_preview:
-            print("♻️ Reiniciando la previsualización desde 0...")
+            print("Reiniciando la previsualización desde 0")
             self.playing_preview = False
-            time.sleep(0.1)
+            time.sleep(0.1) # Short delay to ensure proper stopping before restarting
 
-            # 🔥 Deshabilitar el botón por 2 segundos
+        # Disable the play button to prevent spamming while starting the preview
         self.gui.button_play.config(state=tk.DISABLED)
 
-        # ✅ Asegurar que usamos after() en la raíz de Tkinter
+        # Re-enable the play button after 1 second
         if hasattr(self.gui, 'root'):
             self.gui.root.after(1000, lambda: self.gui.button_play.config(state=tk.NORMAL))
         else:
             self.gui.after(1000, lambda: self.gui.button_play.config(state=tk.NORMAL))
 
+        # Set flags to indicate that the preview is running and not paused
         self.playing_preview = True
         self.paused = False
 
+        # Start the video preview in a separate thread to avoid blocking the GUI
         thread = threading.Thread(target=self.play_video_preview, daemon=True)
         thread.start()
 
     def toggle_pause(self):
-        """Alterna entre pausar y reanudar la reproducción."""
         self.paused = not self.paused
         self.gui.button_pause.config(text="Resume" if self.paused else "Pause")
 
     def trim_video(self):
-        """Recorta el video usando FFmpeg localmente para mayor velocidad."""
+        """Cuts the video using FFmpeg locally for better performance."""
+
+        # Check if a video is loaded before proceeding
         if self.clip is None:
-            messagebox.showwarning("Error", "No hay video cargado.")
+            messagebox.showwarning("Error", "No video loaded.")
             return
 
         try:
+            # Retrieve the start and end times from the GUI inputs
             start_time = float(self.gui.entry_start_time.get())
             end_time = float(self.gui.entry_end_time.get())
 
+            # Validate that the start time is less than the end time and within video duration
             if start_time >= end_time or end_time > self.clip.duration:
-                messagebox.showwarning("Error", "Tiempos de recorte inválidos.")
+                messagebox.showwarning("Error", "Invalid trim times.")
                 return
 
+            # Open a file dialog for the user to select the output path
             output_path = filedialog.asksaveasfilename(defaultextension=".mp4", filetypes=[("MP4 files", "*.mp4")])
             if not output_path:
-                return
+                return  # User canceled the save operation
 
+            # Play slicing sound effect and show a loading screen
             self.gui.soundmanager.play_loop("slice")
             self.gui.show_loading_screen()
 
-            # Comando FFmpeg optimizado
+            # Optimized FFmpeg command for fast video trimming
             cmd = [
                 self.ffmpeg_path, "-y", "-i", self.clip.filename,
                 "-ss", str(start_time), "-to", str(end_time),
@@ -177,48 +192,60 @@ class VideoPlayer:
             ]
 
             try:
+                # Execute FFmpeg command and capture output
                 result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 if result.returncode != 0:
-                    print(f"❌ Error ejecutando FFmpeg:\n{result.stderr}")
+                    print(f"Error executing FFmpeg:\n{result.stderr}")
                 else:
-                    print("✅ FFmpeg ejecutado correctamente.")
+                    print("FFmpeg executed successfully.")
             except Exception as e:
-                print(f"⚠️ Error al ejecutar FFmpeg: {e}")
+                print(f"Error running FFmpeg: {e}")
 
+            # Stop slicing sound effect and play success sound
             self.gui.soundmanager.stop_sound()
-            self.gui.soundmanager.reproducir_sonido("success")
-            messagebox.showinfo("Éxito", f"Video guardado en: {output_path}")
+            self.gui.soundmanager.play_sound("success")
+
+            # Show a success message when the video is saved
+            messagebox.showinfo("Success", f"Video saved at: {output_path}")
 
         except Exception as e:
-            messagebox.showwarning("Error", f"Error al recortar el video: {e}")
+            messagebox.showwarning("Error", f"Error trimming the video: {e}")
 
     def update_start_time(self, val):
-        """Actualiza la entrada de tiempo de inicio."""
         self.gui.entry_start_time.delete(0, tk.END)
         self.gui.entry_start_time.insert(0, str(round(float(val), 2)))
         self.show_frame(float(val))
 
     def update_end_time(self, val):
-        """Actualiza la entrada de tiempo de finalización."""
         self.gui.entry_end_time.delete(0, tk.END)
         self.gui.entry_end_time.insert(0, str(round(float(val), 2)))
         self.show_frame(float(val))
 
     def show_frame(self, time_pos):
-        """Muestra un frame en la previsualización."""
+        """Displays a specific frame from the video at a given timestamp."""
+
+        # Check if the video capture is initialized and open
         if self.cap is None or not self.cap.isOpened():
             return
 
+        # Set the video position to the specified time in milliseconds
         self.cap.set(cv2.CAP_PROP_POS_MSEC, time_pos * 1000)
+
+        # Read the next frame from the video
         ret, frame = self.cap.read()
 
+        # If no frame is retrieved, exit the function
         if not ret:
             return
 
+        # Convert the frame from BGR (OpenCV format) to RGB (PIL format)
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # Convert the frame to a PIL image and resize it for display
         img = Image.fromarray(frame)
         img = img.resize((320, 180), Image.LANCZOS)
         img_tk = ImageTk.PhotoImage(image=img)
 
+        # Update the GUI panel with the new frame
         self.gui.panel_video.config(image=img_tk)
         self.gui.panel_video.image = img_tk
