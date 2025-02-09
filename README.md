@@ -1,6 +1,8 @@
 # Half-Slice
 A local FFMPEG based MP4 video slicer with a Half-Life theme
 
+<img src="https://i.imgur.com/i6WqfGf.png" width="400">
+
 ### Instalation:
 
 To fully run this program locally, we have to install FFMPEG in this directory. You can find FFMPEG here:
