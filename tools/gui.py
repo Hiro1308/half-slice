@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
+import webbrowser
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 import json
@@ -179,7 +179,7 @@ class GUI:
 
     def info_box(self):
         self.soundmanager.play_loop("info")
-        self.custom_warning("Created by Hiro. Version beta 0.5. Shoutout to the brownight gang.")
+        self.custom_warning("Created by Hiro. Version beta 0.6. Shoutout to the brownight gang.")
 
     def custom_warning(self, message):
         """Creates a custom warning dialog with an icon and a message."""
@@ -191,11 +191,11 @@ class GUI:
         warning_win.resizable(False, False)
         warning_win.iconbitmap(self.get_path("assets\\icon.ico"))
 
-        # Define window size and center it on the screen
+        # Center window
         width, height = 350, 120
         self.center_window(warning_win, width, height)
 
-        # Load a custom icon (must be in PNG or GIF format)
+        # Load a custom icon (PNG or GIF format)
         icon = ImageTk.PhotoImage(Image.open(self.get_path("assets\\coomer.png")).resize((40, 40), Image.LANCZOS))
 
         # Keep a reference to the icon to prevent garbage collection
@@ -206,26 +206,44 @@ class GUI:
             self.soundmanager.stop_sound()
             warning_win.destroy()
 
-        # Override the default close button (X) behavior
         warning_win.protocol("WM_DELETE_WINDOW", on_close)
 
-        # Create a frame to align elements
+        # Frame for icon and message
         frame = tk.Frame(warning_win)
         frame.pack(pady=10)
 
-        # Add an icon label to the left side of the frame
+        # Icon label
         icon_label = tk.Label(frame, image=icon)
         icon_label.grid(row=0, column=0, padx=10)
 
-        # Add a message label next to the icon
+        # Message label
         message_label = tk.Label(frame, text=message, font=("Arial", 10), wraplength=250, justify="left")
         message_label.grid(row=0, column=1)
 
-        # Create a close button to dismiss the warning
-        close_button = tk.Button(warning_win, text="OK", command=on_close)
-        close_button.pack(pady=10)
+        # Function for donate button
+        def donate():
+            webbrowser.open("https://www.paypal.com/paypalme/hiro1891")
 
-        # Start the Tkinter event loop for this window
+        # Load PayPal icon
+        paypal_img = Image.open(self.get_path("assets/paypal.png")).resize((12, 12))
+        paypal_icon = ImageTk.PhotoImage(paypal_img)
+
+        # Frame for buttons (aligned horizontally)
+        button_frame = tk.Frame(warning_win)
+        button_frame.pack(pady=10)
+
+        # "OK" Button
+        close_button = tk.Button(button_frame, text="OK", command=on_close, width=8)
+        close_button.pack(side="left", padx=5)
+
+        # "Donate" Button
+        donate_button = tk.Button(
+            button_frame, text="Donate", image=paypal_icon, compound="left", width=60,
+            command=donate, padx=10, pady=3, font=("Arial", 9)
+        )
+        donate_button.image = paypal_icon  # Keep reference
+        donate_button.pack(side="left", padx=5)
+
         warning_win.mainloop()
 
     def select_quality(self):
