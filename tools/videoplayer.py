@@ -156,43 +156,55 @@ class VideoPlayer:
         self.gui.button_pause.config(text="Resume" if self.paused else "Pause")
 
     def trim_video(self):
-        """Cuts the video using FFmpeg locally for better performance."""
+        """Cuts the video using FFmpeg with quality settings from config.json."""
 
-        # Check if a video is loaded before proceeding
         if self.clip is None:
             messagebox.showwarning("Error", "No video loaded.")
             return
 
         try:
-            # Retrieve the start and end times from the GUI inputs
+            # Get start and end times from GUI inputs
             start_time = float(self.gui.entry_start_time.get())
             end_time = float(self.gui.entry_end_time.get())
 
-            # Validate that the start time is less than the end time and within video duration
+            # Validate trim times
             if start_time >= end_time or end_time > self.clip.duration:
                 messagebox.showwarning("Error", "Invalid trim times.")
                 return
 
-            # Open a file dialog for the user to select the output path
+            # Ask for output file path
             output_path = filedialog.asksaveasfilename(defaultextension=".mp4", filetypes=[("MP4 files", "*.mp4")])
             if not output_path:
-                return  # User canceled the save operation
+                return
 
-            # Play slicing sound effect and show a loading screen
+            # Play slicing sound and show loading screen
             self.gui.soundmanager.play_loop("slice")
             self.gui.show_loading_screen()
 
-            # Optimized FFmpeg command for fast video trimming
+            # Load quality settings from config.json or use defaults
+            preset = self.gui.configuration.get('preset', 'medium')  # FFmpeg preset
+            bitrate = self.gui.configuration.get('bitrate', '2500k')  # Video bitrate
+            resolution_map = {
+                '1080p': '1920x1080',
+                '720p': '1280x720',
+                '480p': '854x480',
+                '360p': '640x360'
+            }
+            resolution = resolution_map.get(self.gui.configuration.get('resolution', '720p'), '1280x720')
+
+            # Construct FFmpeg command
             cmd = [
                 self.ffmpeg_path, "-y", "-i", self.clip.filename,
                 "-ss", str(start_time), "-to", str(end_time),
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-                "-c:a", "aac", "-b:a", "128k",
+                "-c:v", "libx264", "-preset", preset,  # Use selected preset
+                "-b:v", bitrate,  # Use selected bitrate
+                "-s", resolution,  # Use selected resolution
+                "-c:a", "aac", "-b:a", "128k",  # Audio settings
                 output_path
             ]
 
+            # Run FFmpeg command and handle output
             try:
-                # Execute FFmpeg command and capture output
                 result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 if result.returncode != 0:
                     print(f"Error executing FFmpeg:\n{result.stderr}")
@@ -201,11 +213,9 @@ class VideoPlayer:
             except Exception as e:
                 print(f"Error running FFmpeg: {e}")
 
-            # Stop slicing sound effect and play success sound
+            # Stop slicing sound, play success sound, and show success message
             self.gui.soundmanager.stop_sound()
             self.gui.soundmanager.play_sound("success")
-
-            # Show a success message when the video is saved
             messagebox.showinfo("Success", f"Video saved at: {output_path}")
 
         except Exception as e:

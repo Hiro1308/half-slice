@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 import json
 import os
@@ -40,7 +40,8 @@ class GUI:
         icons = {
             "mute": ImageTk.PhotoImage(Image.open(self.get_path("assets\\sound.png")).resize((24, 24), Image.LANCZOS)),
             "unmute": ImageTk.PhotoImage(Image.open(self.get_path("assets\\mute.png")).resize((24, 24), Image.LANCZOS)),
-            "info": ImageTk.PhotoImage(Image.open(self.get_path("assets\\info.png")).resize((24, 24), Image.LANCZOS))
+            "info": ImageTk.PhotoImage(Image.open(self.get_path("assets\\info.png")).resize((24, 24), Image.LANCZOS)),
+            "settings": ImageTk.PhotoImage(Image.open(self.get_path("assets\\settings.png")).resize((24, 24), Image.LANCZOS))
         }
         return icons
 
@@ -215,6 +216,51 @@ class GUI:
         # Start the Tkinter event loop for this window
         warning_win.mainloop()
 
+    def select_quality(self):
+        root = tk.Toplevel(self.root)
+        root.title("Settings")
+        root.iconbitmap(self.get_path("assets\\icon.ico"))
+        self.soundmanager.play_sound("button")
+
+        # Define window size and center it on the screen
+        width, height = 280, 170
+        self.center_window(root, width, height)
+
+        # Load existing config or set defaults
+        bitrate = self.configuration.get('bitrate', '2500k')
+        resolution = self.configuration.get('resolution', '720p')
+        preset = self.configuration.get('preset', 'medium')
+
+        tk.Label(root, text="Bitrate:").grid(row=0, column=0, padx=10, pady=5)
+        bitrate_combo = ttk.Combobox(root, values=["5000k", "2500k", "1000k", "500k"], state="readonly")
+        bitrate_combo.set(bitrate)
+        bitrate_combo.grid(row=0, column=1, padx=10, pady=5)
+
+        tk.Label(root, text="Resolution:").grid(row=1, column=0, padx=10, pady=5)
+        resolution_combo = ttk.Combobox(root, values=["1080p", "720p", "480p", "360p"], state="readonly")
+        resolution_combo.set(resolution)
+        resolution_combo.grid(row=1, column=1, padx=10, pady=5)
+
+        tk.Label(root, text="FFmpeg Preset:").grid(row=2, column=0, padx=10, pady=5)
+        preset_combo = ttk.Combobox(root,
+                                    values=["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow",
+                                            "slower", "veryslow"], state="readonly")
+        preset_combo.set(preset)
+        preset_combo.grid(row=2, column=1, padx=10, pady=5)
+
+        def on_ok():
+            self.configuration['bitrate'] = bitrate_combo.get()
+            self.configuration['resolution'] = resolution_combo.get()
+            self.configuration['preset'] = preset_combo.get()
+            self.save_configuration(self.configuration)
+            root.bell = lambda *args, **kwargs: None
+            self.soundmanager.play_sound("success")
+            messagebox.showinfo("Quality Selected",
+                                f"Bitrate: {bitrate_combo.get()}\nResolution: {resolution_combo.get()}\nPreset: {preset_combo.get()}")
+            root.destroy()
+
+        tk.Button(root, text="OK", command=on_ok).grid(row=3, column=0, columnspan=2, pady=10)
+
     def enable_buttons(self):
         """Enables UI controls (sliders and buttons) and binds necessary events."""
 
@@ -297,6 +343,7 @@ class GUI:
         # Mute and Info buttons with icons
         self.boton_mute = tk.Button(self.root, image=self.icons["unmute"] if self.mute else self.icons["mute"],command=self.toggle_mute, borderwidth=0)
         self.boton_info = tk.Button(self.root, image=self.icons["info"], command=self.info_box, borderwidth=0)
+        self.boton_settings = tk.Button(self.root, image=self.icons["settings"], command=self.select_quality, borderwidth=0)
 
         # Initially disable key buttons until a video is loaded
         self.button_cut.config(state=tk.DISABLED)
@@ -309,4 +356,5 @@ class GUI:
         self.button_cut.place(x=38, y=330)
         self.boton_mute.place(x=510, y=400)
         self.boton_info.place(x=550, y=400)
+        self.boton_settings.place(x=470, y=400)
 
