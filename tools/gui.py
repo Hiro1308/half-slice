@@ -167,7 +167,7 @@ class GUI:
         self.save_configuration(self.configuration)  # Save selection in JSON file
 
         # Change button appearance
-        self.boton_mute.config(image=self.icons["unmute"] if self.mute else self.icons["mute"])
+        self.button_mute.config(image=self.icons["unmute"] if self.mute else self.icons["mute"])
 
     def toggle_pause(self):
         self.paused = not self.paused  # Change pause status
@@ -371,12 +371,12 @@ class GUI:
         self.button_cut = tk.Button(self.root, text="Slice", command=self.slice_video, width=25)
 
         # Mute and Info buttons with icons
-        self.boton_mute = tk.Button(self.root, image=self.icons["unmute"] if self.mute else self.icons["mute"],command=self.toggle_mute, borderwidth=0)
+        self.button_mute = tk.Button(self.root, image=self.icons["unmute"] if self.mute else self.icons["mute"],command=self.toggle_mute, borderwidth=0)
         # Set mute button state after widgets are created
         if self.mute is not None:
-            self.boton_mute.config(image=self.icons["unmute"] if self.mute else self.icons["mute"])
-        self.boton_info = tk.Button(self.root, image=self.icons["info"], command=self.info_box, borderwidth=0)
-        self.boton_settings = tk.Button(self.root, image=self.icons["settings"], command=self.select_quality, borderwidth=0)
+            self.button_mute.config(image=self.icons["unmute"] if self.mute else self.icons["mute"])
+        self.button_info = tk.Button(self.root, image=self.icons["info"], command=self.info_box, borderwidth=0)
+        self.button_settings = tk.Button(self.root, image=self.icons["settings"], command=self.select_quality, borderwidth=0)
 
         # Initially disable key buttons until a video is loaded
         self.button_cut.config(state=tk.DISABLED)
@@ -387,7 +387,6 @@ class GUI:
         self.button_play.place(x=260, y=210)
         self.button_pause.place(x=370, y=210)
         self.button_cut.place(x=38, y=330)
-        self.boton_mute.place(x=510, y=400)
-        self.boton_info.place(x=550, y=400)
-        self.boton_settings.place(x=470, y=400)
-
+        self.button_mute.place(x=510, y=400)
+        self.button_info.place(x=550, y=400)
+        self.button_settings.place(x=470, y=400)
