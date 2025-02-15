@@ -179,7 +179,7 @@ class GUI:
 
     def info_box(self):
         self.soundmanager.play_loop("info")
-        self.custom_warning("Created by Hiro. Version beta 0.6. Shoutout to the brownight gang.")
+        self.custom_warning("Created by Hiro. Version beta 0.7. Shoutout to the brownight gang.")
 
     def custom_warning(self, message):
         """Creates a custom warning dialog with an icon and a message."""
@@ -283,7 +283,6 @@ class GUI:
             self.configuration['resolution'] = resolution_combo.get()
             self.configuration['preset'] = preset_combo.get()
             self.save_configuration(self.configuration)
-            root.bell = lambda *args, **kwargs: None
             self.soundmanager.play_sound("success")
             messagebox.showinfo("Quality Selected",
                                 f"Bitrate: {bitrate_combo.get()}\nResolution: {resolution_combo.get()}\nPreset: {preset_combo.get()}")

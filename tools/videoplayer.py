@@ -202,7 +202,7 @@ class VideoPlayer:
                 output_path
             ]
 
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # Run FFmpeg
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=subprocess.CREATE_NO_WINDOW)  # Run FFmpeg
 
             # Parse FFmpeg output to update progress bar
             for line in iter(process.stderr.readline, ''):
