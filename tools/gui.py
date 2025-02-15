@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import ttk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 import json
@@ -13,6 +14,7 @@ class GUI:
         self.mute = None
         self.paused = None
         self.loading_screen = None
+        self.progress = None
 
         self.root = root
         self.root.title("Half-Slice")
@@ -28,6 +30,11 @@ class GUI:
 
         self.config_file = self.get_path("config.json")
         self.configuration = self.load_configuration()
+
+        # Read mute state from config.json at startup
+        if 'mute' in self.configuration:
+            self.mute = self.configuration['mute']
+            self.soundmanager.toggle_mute(self.mute)
 
         self.icons = self.load_icons()
 
@@ -94,34 +101,39 @@ class GUI:
         self.hide_loading_screen()
 
     def show_loading_screen(self):
-        """Displays a loading screen while the file is being processed."""
-
         # Create a new top-level window for the loading screen
         self.loading_screen = tk.Toplevel(self.root)
-        self.loading_screen.title("Processing clip...")
-        self.loading_screen.geometry("300x100")
-        self.loading_screen.resizable(False, False)
-        self.loading_screen.iconbitmap(self.get_path("assets\\icon.ico"))
+        self.loading_screen.title("Processing clip...")  # Set the window title
+        self.loading_screen.geometry("350x120")  # Set the window size
+        self.loading_screen.resizable(False, False)  # Disable resizing
+        self.loading_screen.iconbitmap(self.get_path("assets\\icon.ico"))  # Set the window icon
 
-        # Center the loading screen on the screen
-        self.center_window(self.loading_screen, 300, 100)
-
-        # Avoid user from closing this screen
-        self.loading_screen.wm_attributes("-toolwindow", True)
-        self.loading_screen.protocol("WM_DELETE_WINDOW", lambda: None)
-        self.loading_screen.protocol("WM_DELETE_WINDOW", lambda: None)
-        self.loading_screen.grab_set()
-
-        # Create a container frame to organize the icon, text and images
+        # Create a frame to hold the icon, text, and progress bar
         frame = tk.Frame(self.loading_screen)
-        frame.pack(pady=20, padx=10)
+        frame.pack(pady=10, padx=10)
+
+        # Load and display the processing icon
         icon_img = Image.open(self.get_path("assets\\processing.png")).resize((60, 60), Image.LANCZOS)
         icon = ImageTk.PhotoImage(icon_img)
         icon_label = tk.Label(frame, image=icon)
-        icon_label.image = icon  # Keep a reference to prevent garbage collection
-        icon_label.pack(side=tk.LEFT, padx=(0, 30), anchor="w")
+        icon_label.image = icon  # Keep a reference to avoid garbage collection
+        icon_label.grid(row=0, column=0, rowspan=2, padx=(0, 20), sticky="w")  # Place icon on the left
+
+        # Display the processing text
         text_label = tk.Label(frame, text="Processing clip...", font=("Arial", 12))
-        text_label.pack(side=tk.LEFT)
+        text_label.grid(row=0, column=1, sticky="w")  # Place text next to the icon
+
+        # Create and place the progress bar below the text
+        if not hasattr(self, 'progress') or self.progress is None:
+            self.progress = ttk.Progressbar(frame, orient="horizontal", length=200, mode="determinate")
+        self.progress.grid(row=1, column=1, pady=(5, 0), sticky="we")  # Expand horizontally
+        self.progress["value"] = 0  # Initialize progress at 0
+
+        # Center the window on the screen
+        self.center_window(self.loading_screen, 350, 120)
+        self.loading_screen.wm_attributes("-toolwindow", True)  # Make it a tool window
+        self.loading_screen.protocol("WM_DELETE_WINDOW", lambda: None)  # Disable close button
+        self.loading_screen.grab_set()  # Make the window modal
 
     def hide_loading_screen(self):
         if self.loading_screen:
@@ -167,7 +179,7 @@ class GUI:
 
     def info_box(self):
         self.soundmanager.play_loop("info")
-        self.custom_warning("Created by Hiro. Version beta 0.3. Shoutout to the brownight gang.")
+        self.custom_warning("Created by Hiro. Version beta 0.5. Shoutout to the brownight gang.")
 
     def custom_warning(self, message):
         """Creates a custom warning dialog with an icon and a message."""
@@ -342,6 +354,9 @@ class GUI:
 
         # Mute and Info buttons with icons
         self.boton_mute = tk.Button(self.root, image=self.icons["unmute"] if self.mute else self.icons["mute"],command=self.toggle_mute, borderwidth=0)
+        # Set mute button state after widgets are created
+        if self.mute is not None:
+            self.boton_mute.config(image=self.icons["unmute"] if self.mute else self.icons["mute"])
         self.boton_info = tk.Button(self.root, image=self.icons["info"], command=self.info_box, borderwidth=0)
         self.boton_settings = tk.Button(self.root, image=self.icons["settings"], command=self.select_quality, borderwidth=0)
 

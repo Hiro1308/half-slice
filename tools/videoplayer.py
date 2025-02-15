@@ -7,7 +7,7 @@ import sys
 from moviepy import VideoFileClip
 from PIL import Image, ImageTk
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 
 class VideoPlayer:
     def __init__(self, gui):
@@ -159,7 +159,7 @@ class VideoPlayer:
         """Cuts the video using FFmpeg with quality settings from config.json."""
 
         if self.clip is None:
-            messagebox.showwarning("Error", "No video loaded.")
+            messagebox.showwarning("Error", "No video loaded.")  # Warn if no video is loaded
             return
 
         try:
@@ -169,7 +169,7 @@ class VideoPlayer:
 
             # Validate trim times
             if start_time >= end_time or end_time > self.clip.duration:
-                messagebox.showwarning("Error", "Invalid trim times.")
+                messagebox.showwarning("Error", "Invalid trim times.")  # Warn if times are invalid
                 return
 
             # Ask for output file path
@@ -177,13 +177,12 @@ class VideoPlayer:
             if not output_path:
                 return
 
-            # Play slicing sound and show loading screen
-            self.gui.soundmanager.play_loop("slice")
-            self.gui.show_loading_screen()
+            self.gui.soundmanager.play_loop("slice")  # Play slicing sound
+            self.gui.show_loading_screen()  # Show loading screen with progress bar
 
             # Load quality settings from config.json or use defaults
-            preset = self.gui.configuration.get('preset', 'medium')  # FFmpeg preset
-            bitrate = self.gui.configuration.get('bitrate', '2500k')  # Video bitrate
+            preset = self.gui.configuration.get('preset', 'medium')
+            bitrate = self.gui.configuration.get('bitrate', '2500k')
             resolution_map = {
                 '1080p': '1920x1080',
                 '720p': '1280x720',
@@ -192,34 +191,41 @@ class VideoPlayer:
             }
             resolution = resolution_map.get(self.gui.configuration.get('resolution', '720p'), '1280x720')
 
-            # Construct FFmpeg command
+            # Construct FFmpeg command with selected quality settings
             cmd = [
                 self.ffmpeg_path, "-y", "-i", self.clip.filename,
                 "-ss", str(start_time), "-to", str(end_time),
-                "-c:v", "libx264", "-preset", preset,  # Use selected preset
-                "-b:v", bitrate,  # Use selected bitrate
-                "-s", resolution,  # Use selected resolution
-                "-c:a", "aac", "-b:a", "128k",  # Audio settings
+                "-c:v", "libx264", "-preset", preset,
+                "-b:v", bitrate,
+                "-s", resolution,
+                "-c:a", "aac", "-b:a", "128k",
                 output_path
             ]
 
-            # Run FFmpeg command and handle output
-            try:
-                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                if result.returncode != 0:
-                    print(f"Error executing FFmpeg:\n{result.stderr}")
-                else:
-                    print("FFmpeg executed successfully.")
-            except Exception as e:
-                print(f"Error running FFmpeg: {e}")
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # Run FFmpeg
 
-            # Stop slicing sound, play success sound, and show success message
-            self.gui.soundmanager.stop_sound()
-            self.gui.soundmanager.play_sound("success")
-            messagebox.showinfo("Success", f"Video saved at: {output_path}")
+            # Parse FFmpeg output to update progress bar
+            for line in iter(process.stderr.readline, ''):
+                if "time=" in line:
+                    try:
+                        time_str = line.split("time=")[1].split(" ")[0]  # Extract time string
+                        h, m, s = map(float, time_str.split(':'))  # Convert time to float
+                        current_time = h * 3600 + m * 60 + s
+                        progress_percent = (current_time / (end_time - start_time)) * 100  # Calculate progress
+                        if hasattr(self.gui, 'progress') and self.gui.progress is not None:
+                            self.gui.progress["value"] = progress_percent  # Update progress bar
+                            self.gui.loading_screen.update_idletasks()  # Refresh UI
+                    except ValueError:
+                        continue  # Ignore invalid lines
+
+            process.wait()  # Wait for FFmpeg to finish
+
+            self.gui.soundmanager.stop_sound()  # Stop slicing sound
+            self.gui.soundmanager.play_sound("success")  # Play success sound
+            messagebox.showinfo("Success", f"Video saved at: {output_path}")  # Show success message
 
         except Exception as e:
-            messagebox.showwarning("Error", f"Error trimming the video: {e}")
+            messagebox.showwarning("Error", f"Error trimming the video: {e}")  # Show error message if exception occurs
 
     def update_start_time(self, val):
         self.gui.entry_start_time.delete(0, tk.END)
