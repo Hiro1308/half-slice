@@ -58,6 +58,22 @@ class GUI:
     # -------------------------
     # PATH / CONFIG
     # -------------------------
+    def enable_buttons(self):
+        """Compat: lo llama VideoPlayer. Habilita lo que exista en el GUI."""
+        for attr in (
+            "slider_start",
+            "slider_end",
+            "button_cut",
+            "button_play",
+            "button_pause",
+        ):
+            w = getattr(self, attr, None)
+            if w is not None:
+                try:
+                    w.config(state=tk.NORMAL)
+                except Exception:
+                    pass
+    
     def get_path(self, relative_path):
         return os.path.join(os.path.abspath("."), relative_path)
 
@@ -164,7 +180,7 @@ class GUI:
         root.iconbitmap(self.get_path("assets\\icon.ico"))
         self.soundmanager.play_sound("button")
 
-        width, height = 280, 200
+        width, height = 280, 210
         self.center_window(root, width, height)
 
         bitrate = self.configuration.get("bitrate", "2500k")
@@ -172,46 +188,73 @@ class GUI:
         preset = self.configuration.get("preset", "medium")
         discord_8mb = bool(self.configuration.get("discord_8mb", False))
 
-        tk.Label(root, text="Bitrate:").grid(row=0, column=0, padx=10, pady=5)
-        bitrate_combo = ttk.Combobox(root, values=["5000k", "2500k", "1000k", "500k"], state="readonly")
+        tk.Label(root, text="Bitrate:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
+        bitrate_combo = ttk.Combobox(root, values=["5000k", "2500k", "1000k", "500k"], state="readonly", width=12)
         bitrate_combo.set(bitrate)
         bitrate_combo.grid(row=0, column=1, padx=10, pady=5)
 
-        tk.Label(root, text="Resolution:").grid(row=1, column=0, padx=10, pady=5)
-        resolution_combo = ttk.Combobox(root, values=["1080p", "720p", "480p", "360p"], state="readonly")
+        tk.Label(root, text="Resolution:").grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        resolution_combo = ttk.Combobox(root, values=["1080p", "720p", "480p", "360p"], state="readonly", width=12)
         resolution_combo.set(resolution)
         resolution_combo.grid(row=1, column=1, padx=10, pady=5)
 
-        tk.Label(root, text="FFmpeg Preset:").grid(row=2, column=0, padx=10, pady=5)
+        tk.Label(root, text="FFmpeg Preset:").grid(row=2, column=0, padx=10, pady=5, sticky="w")
         preset_combo = ttk.Combobox(
             root,
             values=["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"],
             state="readonly",
+            width=12,
         )
         preset_combo.set(preset)
         preset_combo.grid(row=2, column=1, padx=10, pady=5)
 
         discord_var = tk.BooleanVar(value=discord_8mb)
-        tk.Checkbutton(root, text="Compress for Discord (8MB)", variable=discord_var).grid(
+
+        hint_lbl = tk.Label(root, text="", fg="gray")
+        hint_lbl.grid(row=4, column=0, columnspan=2, pady=(2, 0))
+
+        def apply_discord_ui():
+            on = bool(discord_var.get())
+            # cuando discord ON, deshabilitamos combos (visualmente) porque se ignoran
+            new_state = "disabled" if on else "readonly"
+            bitrate_combo.config(state=new_state)
+            resolution_combo.config(state=new_state)
+            preset_combo.config(state=new_state)
+            hint_lbl.config(text="Discord ON: ignora bitrate/resolution/preset" if on else "")
+
+        tk.Checkbutton(root, text="Compress for Discord (8MB)", variable=discord_var, command=apply_discord_ui).grid(
             row=3, column=0, columnspan=2, pady=(6, 0)
         )
 
+        apply_discord_ui()
+
         def on_ok():
-            self.configuration["bitrate"] = bitrate_combo.get()
-            self.configuration["resolution"] = resolution_combo.get()
-            self.configuration["preset"] = preset_combo.get()
+            # Guardamos igual (por si el usuario apaga Discord luego), pero:
+            # cuando discord_8mb = True, en el slicer se ignorarán estos settings.
+            self.configuration["bitrate"] = bitrate_combo.get() or bitrate
+            self.configuration["resolution"] = resolution_combo.get() or resolution
+            self.configuration["preset"] = preset_combo.get() or preset
             self.configuration["discord_8mb"] = bool(discord_var.get())
             self.save_configuration()
             self.soundmanager.play_sound("success")
 
-            extra = "\nDiscord: ON (8MB max)" if self.configuration["discord_8mb"] else "\nDiscord: OFF"
-            messagebox.showinfo(
-                "Quality Selected",
-                f"Bitrate: {bitrate_combo.get()}\nResolution: {resolution_combo.get()}\nPreset: {preset_combo.get()}{extra}",
-            )
+            if self.configuration["discord_8mb"]:
+                messagebox.showinfo(
+                    "Quality Selected",
+                    "Discord 8MB: ON\n\nSe ignorarán bitrate/resolution/preset al cortar (Slice).",
+                )
+            else:
+                messagebox.showinfo(
+                    "Quality Selected",
+                    f"Bitrate: {self.configuration['bitrate']}\n"
+                    f"Resolution: {self.configuration['resolution']}\n"
+                    f"Preset: {self.configuration['preset']}\n"
+                    f"Discord 8MB: OFF",
+                )
+
             root.destroy()
 
-        tk.Button(root, text="OK", command=on_ok).grid(row=4, column=0, columnspan=2, pady=10)
+        tk.Button(root, text="OK", command=on_ok).grid(row=5, column=0, columnspan=2, pady=10)
 
     # -------------------------
     # MAIN UI
