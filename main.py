@@ -1,4 +1,4 @@
-from tools.gui import GUI
+from core.gui import GUI
 import tkinter as tk
 
 if __name__ == "__main__":
