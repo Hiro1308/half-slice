@@ -35,7 +35,7 @@ class DiscordTab:
 
         tk.Button(canvas, text="Browse", command=self.browse_folder).place(x=250, y=128)
 
-        tk.Button(canvas, text="Compress to 8MB", command=self.compress, width=25).place(x=35, y=195)
+        tk.Button(canvas, text="Compress to 10MB", command=self.compress, width=25).place(x=35, y=195)
 
         self.btn_mute = add_bottom_right_icons(self.app, canvas, prefix="discord")
 
@@ -68,7 +68,7 @@ class DiscordTab:
 
         def worker():
             try:
-                ok, output_path, size_mb = self.ff.compress_to_discord_8mb(
+                ok, output_path, size_mb = self.ff.compress_to_discord_10mb(
                     input_path,
                     out_dir if out_dir else None,
                     on_progress=self.app.ui.set_progress,
@@ -79,9 +79,9 @@ class DiscordTab:
                     self.app.ui.hide_loading()
                     if ok:
                         self.app.soundmanager.play_sound("success")
-                        messagebox.showinfo("Done", f"Listo ✅\n{output_path}\nSize: {size_mb:.2f} MB")
+                        messagebox.showinfo("Done", f"Listo \n{output_path}\nSize: {size_mb:.2f} MB")
                     else:
-                        messagebox.showerror("Error", "No pude bajarlo a 8MB con los límites actuales.")
+                        messagebox.showerror("Error", "No pude bajarlo a 10MB con los límites actuales.")
 
                 self.app.ui.run_on_ui(done)
 

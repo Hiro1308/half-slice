@@ -5,7 +5,7 @@ import threading
 import subprocess
 import sys
 from moviepy import VideoFileClip
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, Image
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -53,11 +53,20 @@ class VideoPlayer:
             try:
                 self.gui.after(0, fn)
             except Exception:
-                # último recurso: ejecutar directo (no ideal, pero evita crash si no hay root)
                 try:
                     fn()
                 except Exception:
                     pass
+
+    def _ui_safe(self, fn):
+        """Si existe UIService.run_on_ui, lo usa; si no, fallback a _ui."""
+        try:
+            if hasattr(self.gui, "ui") and hasattr(self.gui.ui, "run_on_ui"):
+                self.gui.ui.run_on_ui(fn)
+                return
+        except Exception:
+            pass
+        self._ui(fn)
 
     def _set_panel_image(self, img_rgb):
         """Convierte numpy RGB -> PhotoImage y lo setea en el label (SIEMPRE en UI thread)."""
@@ -81,6 +90,45 @@ class VideoPlayer:
             except Exception:
                 pass
             self.cap = None
+
+    # -------------------- subprocess helpers (no-window, stable cwd, drain stderr) --------------------
+
+    def _popen_no_window_kwargs(self):
+        if os.name != "nt":
+            return {}
+
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
+
+        return {
+            "creationflags": subprocess.CREATE_NO_WINDOW,
+            "startupinfo": startupinfo,
+        }
+
+    def _ffmpeg_cwd(self):
+        try:
+            if self.ffmpeg_path and os.path.isabs(self.ffmpeg_path):
+                return os.path.dirname(self.ffmpeg_path)
+        except Exception:
+            pass
+        return None
+
+    def _drain_stream(self, stream, tail_list=None, max_tail=120):
+        """
+        Drena un stream (stderr) para evitar deadlocks.
+        Si tail_list es una lista, guarda las últimas líneas.
+        """
+        try:
+            for line in stream:
+                if not line:
+                    break
+                if tail_list is not None:
+                    tail_list.append(line.rstrip("\n"))
+                    if len(tail_list) > max_tail:
+                        del tail_list[0:len(tail_list) - max_tail]
+        except Exception:
+            pass
 
     # -------------------- carga --------------------
 
@@ -145,7 +193,7 @@ class VideoPlayer:
         # deshabilitar play instantáneo
         self._ui(lambda: self.gui.button_play.config(state=tk.DISABLED))
 
-        # validaciones de tiempos (en UI thread se leen entries, ok)
+        # validaciones de tiempos
         try:
             start_time = float(self.gui.entry_start_time.get())
             end_time = float(self.gui.entry_end_time.get())
@@ -162,8 +210,11 @@ class VideoPlayer:
         self.playing_preview = True
         self.paused = False
 
-        # habilitar play después de 1s (como tenías)
-        self._ui(lambda: self.gui.root.after(1000, lambda: self.gui.button_play.config(state=tk.NORMAL)))
+        # habilitar play después de 1s
+        try:
+            self._ui(lambda: self.gui.root.after(1000, lambda: self.gui.button_play.config(state=tk.NORMAL)))
+        except Exception:
+            self._ui(lambda: self.gui.button_play.config(state=tk.NORMAL))
 
         # lanzar thread
         self._preview_thread = threading.Thread(
@@ -175,7 +226,6 @@ class VideoPlayer:
 
     def _play_video_preview_worker(self, start_time: float, end_time: float):
         """Worker thread: NO toca tkinter; sólo lee frames y los manda por _ui."""
-        # reabrir cap dedicada al preview
         self._safe_release_cap()
         with self._cap_lock:
             self.cap = cv2.VideoCapture(self.clip.filename)
@@ -207,7 +257,6 @@ class VideoPlayer:
             if current_video_time >= end_time:
                 break
 
-            # throttle mínimo
             now = time.time()
             if now - last_emit >= min_emit_interval:
                 try:
@@ -262,11 +311,29 @@ class VideoPlayer:
         video_kbps = max(80, total_kbps - audio_kbps)
         return video_kbps, audio_kbps, total_kbps
 
+    # -------------------- trim / slice --------------------
+
     def trim_video(self):
-        """Cuts the video using FFmpeg with quality settings from config.json OR Discord 8MB mode."""
         if self.clip is None:
             messagebox.showwarning("Error", "No video loaded.")
             return
+
+        def _set_progress(p):
+            p = float(max(0, min(100, p)))
+            try:
+                if hasattr(self.gui, "ui") and hasattr(self.gui.ui, "set_progress"):
+                    self.gui.ui.set_progress(p)
+                    return
+            except Exception:
+                pass
+
+            def _u():
+                try:
+                    if hasattr(self.gui, "progress") and self.gui.progress is not None:
+                        self.gui.progress["value"] = p
+                except Exception:
+                    pass
+            self._ui_safe(_u)
 
         try:
             start_time = float(self.gui.entry_start_time.get())
@@ -284,21 +351,21 @@ class VideoPlayer:
                 return
 
             self.gui.soundmanager.play_loop("slice")
-            self.gui.show_loading_screen()
+
+            # mostrar loading UNA sola vez (acá)
+            try:
+                if hasattr(self.gui, "ui"):
+                    self.gui.ui.show_loading("Processing clip...", "Processing clip...")
+            except Exception:
+                pass
 
             segment_duration = end_time - start_time
-
             discord_mode = bool(self.gui.configuration.get("discord_8mb", False))
 
-            if discord_mode:
-                v_kbps, a_kbps, total_kbps = self._calc_discord_bitrates(segment_duration, target_mb=8.0)
+            _set_progress(0)
 
-                # Compresión tipo "Discord compressor":
-                # - fps fijo
-                # - escala (720p) friendly
-                # - yuv420p (compatibilidad)
-                # - faststart
-                # - límites de bitrate
+            if discord_mode:
+                v_kbps, a_kbps, _ = self._calc_discord_bitrates(segment_duration, target_mb=8.0)
                 vf = "scale=1280:-2,fps=30"
 
                 cmd = [
@@ -307,22 +374,20 @@ class VideoPlayer:
                     "-i", self.clip.filename,
 
                     "-vf", vf,
-
                     "-c:v", "libx264",
                     "-pix_fmt", "yuv420p",
                     "-preset", "veryfast",
-
-                    # bitrate calculado (kbps)
                     "-b:v", f"{v_kbps}k",
                     "-maxrate", f"{v_kbps}k",
                     "-bufsize", f"{max(v_kbps * 2, 200)}k",
 
-                    # audio también ajustado
                     "-c:a", "aac",
                     "-b:a", f"{a_kbps}k",
                     "-ac", "2",
 
                     "-movflags", "+faststart",
+                    "-progress", "pipe:1",
+                    "-nostats",
                     output_path
                 ]
             else:
@@ -337,60 +402,110 @@ class VideoPlayer:
                 resolution = resolution_map.get(self.gui.configuration.get('resolution', '720p'), '1280x720')
 
                 cmd = [
-                    self.ffmpeg_path, "-y", "-i", self.clip.filename,
+                    self.ffmpeg_path, "-y",
                     "-ss", str(start_time), "-to", str(end_time),
-                    "-c:v", "libx264", "-preset", preset,
+                    "-i", self.clip.filename,
+
+                    "-c:v", "libx264",
+                    "-preset", preset,
                     "-b:v", bitrate,
                     "-s", resolution,
-                    "-c:a", "aac", "-b:a", "128k",
+
+                    "-c:a", "aac",
+                    "-b:a", "128k",
+
+                    "-movflags", "+faststart",
+                    "-progress", "pipe:1",
+                    "-nostats",
                     output_path
                 ]
+
+            # no window + cwd estable
+            startupinfo = None
+            creationflags = 0
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0
+                creationflags = subprocess.CREATE_NO_WINDOW
 
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                bufsize=1,
+                universal_newlines=True,
+                cwd=os.path.dirname(self.ffmpeg_path),
+                startupinfo=startupinfo,
+                creationflags=creationflags
             )
 
-            for line in iter(process.stderr.readline, ''):
-                if "time=" in line:
+            # drenar stderr (evita deadlock)
+            stderr_tail = []
+            def drain_err():
+                try:
+                    for ln in process.stderr:
+                        if not ln:
+                            break
+                        stderr_tail.append(ln.rstrip("\n"))
+                        if len(stderr_tail) > 120:
+                            stderr_tail.pop(0)
+                except Exception:
+                    pass
+
+            threading.Thread(target=drain_err, daemon=True).start()
+
+            # progreso por stdout (out_time_ms)
+            for line in iter(process.stdout.readline, ''):
+                if not line:
+                    break
+                line = line.strip()
+
+                if line.startswith("out_time_ms="):
                     try:
-                        time_str = line.split("time=")[1].split(" ")[0]
-                        h, m, s = map(float, time_str.split(':'))
-                        current_time = h * 3600 + m * 60 + s
-                        progress_percent = (current_time / segment_duration) * 100
-                        if hasattr(self.gui, 'progress') and self.gui.progress is not None:
-                            self.gui.progress["value"] = min(100, max(0, progress_percent))
-                            self.gui.loading_screen.update_idletasks()
-                    except ValueError:
-                        continue
+                        out_time = int(line.split("=", 1)[1]) / 1_000_000
+                        pct = (out_time / max(segment_duration, 0.001)) * 100
+                        _set_progress(pct)
+                    except Exception:
+                        pass
+                elif line == "progress=end":
+                    _set_progress(100)
+                    break
 
             process.wait()
 
             self.gui.soundmanager.stop_sound()
-            self.gui.soundmanager.play_sound("success")
 
-            if discord_mode:
-                try:
-                    final_size = os.path.getsize(output_path) / (1024 * 1024)
-                    messagebox.showinfo(
-                        "Success",
-                        f"Video saved at:\n{output_path}\n\nDiscord mode: OK\nFinal size: {final_size:.2f} MB"
-                    )
-                except Exception:
-                    messagebox.showinfo("Success", f"Video saved at: {output_path}")
-            else:
-                messagebox.showinfo("Success", f"Video saved at: {output_path}")
+            try:
+                if hasattr(self.gui, "ui"):
+                    self.gui.ui.hide_loading()
+            except Exception:
+                pass
+
+            if process.returncode != 0:
+                tail = "\n".join(stderr_tail)[-2000:].strip()
+                raise RuntimeError(f"FFmpeg failed (code {process.returncode}).\n\n{tail}")
+
+            self.gui.soundmanager.play_sound("success")
+            messagebox.showinfo("Success", f"Video saved at: {output_path}")
 
         except Exception as e:
+            try:
+                self.gui.soundmanager.stop_sound()
+            except Exception:
+                pass
+            try:
+                if hasattr(self.gui, "ui"):
+                    self.gui.ui.hide_loading()
+            except Exception:
+                pass
             messagebox.showwarning("Error", f"Error trimming the video: {e}")
+
 
     # -------------------- sliders --------------------
 
     def update_start_time(self, val):
-        # si el usuario cambia el slider mientras preview corre, cortamos preview
         if self.playing_preview:
             self.stop_preview()
 
@@ -408,7 +523,6 @@ class VideoPlayer:
 
     def show_frame(self, time_pos):
         """Displays a specific frame from the video at a given timestamp."""
-        # si preview corre, lo cortamos para que no compitan por cap
         if self.playing_preview:
             self.stop_preview()
             time.sleep(0.01)

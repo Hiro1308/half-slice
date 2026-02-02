@@ -14,8 +14,29 @@ class FFmpegService:
         local = self.get_path("ffmpeg\\bin\\ffprobe.exe")
         return local if os.path.exists(local) else "ffprobe"
 
+    @staticmethod
+    def _no_window_kwargs():
+        """
+        Evita que se abra la ventana de CMD en Windows
+        """
+        if os.name != "nt":
+            return {}
+
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
+
+        return {
+            "creationflags": subprocess.CREATE_NO_WINDOW,
+            "startupinfo": startupinfo,
+        }
+
     def probe_duration_seconds(self, input_path):
         ffprobe = self._get_ffprobe_path()
+
+        # cwd estable (si ffprobe es local, usamos su carpeta)
+        cwd = os.path.dirname(ffprobe) if os.path.isabs(ffprobe) else None
+
         try:
             out = subprocess.check_output(
                 [
@@ -25,7 +46,9 @@ class FFmpegService:
                     input_path
                 ],
                 stderr=subprocess.STDOUT,
-                text=True
+                text=True,
+                cwd=cwd,
+                **self._no_window_kwargs()
             ).strip()
             return float(out)
         except Exception as e:
@@ -36,15 +59,21 @@ class FFmpegService:
         Usa -progress pipe:1 (stdout) y drena stderr en paralelo para evitar deadlocks.
         Corta al ver progress=end.
         """
-        import subprocess, threading, collections, time
+        import threading, collections, time
+
+        # cwd estable: si cmd[0] es ruta absoluta a ffmpeg.exe, usamos su carpeta
+        ffmpeg_exe = cmd[0]
+        cwd = os.path.dirname(ffmpeg_exe) if os.path.isabs(ffmpeg_exe) else None
 
         p = subprocess.Popen(
             cmd,
+            cwd=cwd,
             stdout=subprocess.PIPE,   # progress
             stderr=subprocess.PIPE,   # logs
             text=True,
             bufsize=1,
-            universal_newlines=True
+            universal_newlines=True,
+            **self._no_window_kwargs()
         )
 
         def report(pct):
@@ -56,7 +85,6 @@ class FFmpegService:
 
         report(0)
 
-        # Guardamos las últimas líneas de stderr por si hay error
         err_tail = collections.deque(maxlen=80)
 
         def drain_stderr():
@@ -81,7 +109,6 @@ class FFmpegService:
                     break
                 line = line.strip()
 
-                # ffmpeg puede emitir out_time_ms o out_time_us según versión/build
                 if line.startswith("out_time_ms="):
                     try:
                         out_time = int(line.split("=", 1)[1]) / 1_000_000
@@ -93,7 +120,6 @@ class FFmpegService:
                     except:
                         continue
                 elif line.startswith("out_time="):
-                    # formato HH:MM:SS.micro
                     try:
                         hh, mm, ss = line.split("=", 1)[1].split(":")
                         out_time = (int(hh) * 3600) + (int(mm) * 60) + float(ss)
@@ -108,14 +134,13 @@ class FFmpegService:
 
                 pct = int(min(100, max(0, (out_time / max(duration_sec, 0.001)) * 100)))
 
-                # throttle: no spamear la UI
                 now = time.time()
                 if pct != last_emit and (now - last_time) > 0.05:
                     report(pct)
                     last_emit = pct
                     last_time = now
 
-            # Esperamos a que el proceso termine; si se queda colgado, lo matamos
+            # Esperar fin (si se cuelga, kill)
             try:
                 p.wait(timeout=10 if ended else 600)
             except subprocess.TimeoutExpired:
@@ -142,10 +167,11 @@ class FFmpegService:
             tail = "\n".join(err_tail)[-2000:]
             raise RuntimeError(f"FFmpeg failed (code {rc}).\n\nFFmpeg stderr (tail):\n{tail}")
 
-
-    
     def probe_resolution(self, input_path):
-        ffprobe = self._get_ffprobe_path() if hasattr(self, "_get_ffprobe_path") else "ffprobe"
+        ffprobe = self._get_ffprobe_path()
+
+        cwd = os.path.dirname(ffprobe) if os.path.isabs(ffprobe) else None
+
         cmd = [
             ffprobe, "-v", "error",
             "-select_streams", "v:0",
@@ -153,7 +179,7 @@ class FFmpegService:
             "-of", "json",
             input_path
         ]
-        p = subprocess.run(cmd, capture_output=True, text=True)
+        p = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, **self._no_window_kwargs())
         if p.returncode != 0:
             return None, None
         try:
@@ -163,9 +189,9 @@ class FFmpegService:
         except:
             return None, None
 
-    def compress_to_discord_8mb(self, input_path, out_dir=None, max_bytes=8 * 1024 * 1024, on_progress=None, on_status=None):
+    def compress_to_discord_10mb(self, input_path, out_dir=None, max_bytes=10 * 1024 * 1024, on_progress=None, on_status=None):
         """
-        Compresión rápida y efectiva para Discord (<8MB).
+        Compresión rápida y efectiva para Discord (<10MB).
         - Calcula bitrate por duración.
         - 1-pass (ultrafast) con fallbacks (res/audio/fps).
         Devuelve: (ok, output_path, size_mb)
@@ -183,7 +209,7 @@ class FFmpegService:
             raise RuntimeError("Invalid output directory")
 
         base = os.path.splitext(os.path.basename(input_path))[0]
-        final_output = os.path.join(out_dir, f"{base}_discord8mb.mp4")
+        final_output = os.path.join(out_dir, f"{base}_discord10mb.mp4")
 
         # Protección: no pisar input
         if os.path.abspath(input_path) == os.path.abspath(final_output):
@@ -224,10 +250,10 @@ class FFmpegService:
         for idx, (target_h, a_bps, extra_vf) in enumerate(attempts, start=1):
             if on_status:
                 try:
-                    on_status(f"Intento {idx} de {total_attempts}")
+                    on_status(f"Intento {idx} de {total_attempts} (10MB max)")
                 except:
                     pass
-            
+
             scale_h = min(in_h, target_h)
 
             # video bitrate = total - audio (con piso)
@@ -244,7 +270,7 @@ class FFmpegService:
                 vf_parts.append(extra_vf)
             vf = ",".join(vf_parts)
 
-            tmp_output = os.path.join(out_dir, f"{base}_discord8mb_try{idx}.tmp.mp4")
+            tmp_output = os.path.join(out_dir, f"{base}_discord10mb_try{idx}.tmp.mp4")
 
             cmd = [
                 ffmpeg, "-y",
@@ -301,5 +327,3 @@ class FFmpegService:
                     pass
 
         return False, final_output, 0.0
-
-

@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
+import threading
 
 from .ui_helpers import build_tab_canvas, add_bottom_right_icons
 
@@ -158,8 +159,6 @@ class SlicerTab:
 
     def slice_video(self):
         self.app.soundmanager.play_sound("button")
-
-        # si había preview, cortalo antes de cortar el video
         try:
             self.app.video_player.stop_preview()
         except Exception:
@@ -170,20 +169,13 @@ class SlicerTab:
             messagebox.showerror("Error", "Please select a video file first.")
             return
 
-        # Si vos querías usar loading modal acá también:
-        self.app.ui.show_loading("Processing clip...", "Processing clip...")
-
         def worker():
             try:
                 self.app.video_player.trim_video()
-                self.app.ui.run_on_ui(self.app.ui.hide_loading)
             except Exception as e:
                 self.app.ui.run_on_ui(
-                    lambda: (
-                        self.app.ui.hide_loading(),
-                        messagebox.showwarning("Error", f"Error when slicing video: {e}")
-                    )
+                    lambda: messagebox.showwarning("Error", f"Error when slicing video: {e}")
                 )
 
-        import threading
         threading.Thread(target=worker, daemon=True).start()
+

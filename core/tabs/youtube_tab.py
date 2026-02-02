@@ -203,7 +203,6 @@ class YouTubeTab:
                     messagebox.showinfo("YouTube Downloader", f"Listo!\nFormato: {fmt_ui}\nCalidad: {quality}")
                 else:
                     self._set_status("Failed")
-                    messagebox.showerror("YouTube Downloader", "Falló la descarga. Revisá la URL o yt-dlp/ffmpeg.")
 
             self.app.root.after(0, finish)
 
